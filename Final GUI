@@ -1,0 +1,239 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import numpy as np
+import pandas as pd
+from PIL import Image, ImageTk
+from tensorflow.keras.models import load_model
+from sklearn.preprocessing import LabelEncoder
+import os
+import cv2
+
+class SkinDiseaseClassifier:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Skin Disease Classifier")
+        self.root.geometry("900x700")
+        self.root.config(bg="#f0f2f5")
+        
+        # Initialize variables
+        self.model = None
+        self.class_names = []
+        self.df = None
+        
+        # Load resources
+        self.load_resources()
+        
+        # Create GUI
+        self.create_widgets()
+        
+    def load_resources(self):
+        """Load the model and dataset"""
+        try:
+            # Update these paths to your actual files
+            base_path = r"C:\Users\ajabrao chilhate\Downloads\archive (2)"
+            csv_files = [
+                "hmnist_28_28_RGB.csv",
+                "hmnist_28_28_L.csv",
+                "hmnist_8_8_RGB.csv",
+                "hmnist_8_8_L.csv"
+            ]
+            model_path = os.path.join(base_path, "hmnist_28_28_RGB_model.h5")
+            
+            # Check if files exist
+            for file in csv_files:
+                if not os.path.exists(os.path.join(base_path, file)):
+                    raise FileNotFoundError(f"File not found: {file}")
+            
+            if not os.path.exists(model_path):
+                raise FileNotFoundError("Model file not found")
+            
+            # Load and combine all CSV files
+            dfs = []
+            for file in csv_files:
+                df = pd.read_csv(os.path.join(base_path, file))
+                dfs.append(df)
+            
+            # Combine all dataframes (using the first one as base)
+            self.df = dfs[0]  # Use the RGB 28x28 as primary
+            # You might want to add more sophisticated merging here if needed
+            
+            # Prepare labels
+            le = LabelEncoder()
+            self.df['label_encoded'] = le.fit_transform(self.df['label'])
+            self.class_names = le.classes_
+            
+            # Load model
+            self.model = load_model(model_path)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load resources: {str(e)}")
+            self.root.destroy()
+    
+    def create_widgets(self):
+        """Create the GUI components"""
+        # Header
+        header = tk.Frame(self.root, bg="#3e8ef7", height=80)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="Skin Disease Classifier", font=("Arial", 24, "bold"), 
+                bg="#3e8ef7", fg="white").pack(pady=20)
+        
+        # Main content
+        main_frame = tk.Frame(self.root, bg="#f0f2f5")
+        main_frame.pack(pady=20, padx=20, fill=tk.BOTH, expand=True)
+        
+        # Upload button
+        upload_btn = tk.Button(main_frame, text="Upload Skin Image", 
+                             command=self.predict_image,
+                             font=("Arial", 12), bg="#4CAF50", fg="white",
+                             width=20, height=2)
+        upload_btn.pack(pady=10)
+        
+        # Result display
+        self.result_label = tk.Label(main_frame, text="", font=("Arial", 14), 
+                                   bg="#f0f2f5", fg="#333")
+        self.result_label.pack(pady=10)
+        
+        # Image display frame
+        img_frame = tk.Frame(main_frame, bg="#f0f2f5")
+        img_frame.pack(pady=10)
+        
+        # User image
+        user_img_label = tk.Label(img_frame, text="Your Image:", font=("Arial", 12),
+                                bg="#f0f2f5")
+        user_img_label.grid(row=0, column=0, padx=10)
+        
+        self.user_image = tk.Label(img_frame, bg="white", width=200, height=200)
+        self.user_image.grid(row=1, column=0, padx=10, pady=5)
+        
+        # Matched image
+        matched_img_label = tk.Label(img_frame, text="Matched Sample:", font=("Arial", 12),
+                                   bg="#f0f2f5")
+        matched_img_label.grid(row=0, column=1, padx=10)
+        
+        self.matched_image = tk.Label(img_frame, bg="white", width=200, height=200)
+        self.matched_image.grid(row=1, column=1, padx=10, pady=5)
+        
+        # Disease information
+        info_frame = tk.Frame(main_frame, bg="#f0f2f5")
+        info_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Label(info_frame, text="Disease Information:", font=("Arial", 12, "bold"),
+                bg="#f0f2f5").pack(anchor=tk.W)
+        
+        self.info_text = tk.Text(info_frame, height=6, width=80, wrap=tk.WORD,
+                               font=("Arial", 10), bg="white", relief=tk.FLAT)
+        self.info_text.pack(fill=tk.X)
+        
+        # Add some padding and make it read-only
+        self.info_text.config(padx=10, pady=10, state=tk.DISABLED)
+        
+        # Status bar
+        self.status = tk.Label(self.root, text="Ready", bd=1, relief=tk.SUNKEN,
+                             anchor=tk.W, bg="#e9ecef", fg="#333")
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+    
+    def predict_image(self):
+        """Handle image prediction"""
+        file_path = filedialog.askopenfilename(
+            title="Select Skin Image",
+            filetypes=[("Image files", "*.jpg *.jpeg *.png")]
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            self.status.config(text="Processing image...")
+            self.root.update()
+            
+            # Preprocess image
+            img = Image.open(file_path)
+            img = img.resize((28, 28)).convert('RGB')
+            img_array = np.array(img) / 255.0
+            input_img = img_array.reshape(1, 28, 28, 3)
+            
+            # Display user image
+            display_img = ImageTk.PhotoImage(Image.open(file_path).resize((200, 200)))
+            self.user_image.config(image=display_img)
+            self.user_image.image = display_img
+            
+            # Predict
+            pred_probs = self.model.predict(input_img)
+            pred_class_index = np.argmax(pred_probs)
+            pred_class_name = self.class_names[pred_class_index]
+            confidence = np.max(pred_probs)
+            
+            # Update result label
+            self.result_label.config(
+                text=f"Predicted: {pred_class_name} (Confidence: {confidence:.1%})",
+                fg="#4CAF50"
+            )
+            
+            # Find matching image from dataset
+            match_index = np.where(self.df['label_encoded'] == pred_class_index)[0][0]
+            matched_img_array = self.df.iloc[match_index, :-2].values.reshape(28, 28, 3)
+            matched_img = Image.fromarray((matched_img_array * 255).astype(np.uint8))
+            
+            # Display matched image
+            matched_display = ImageTk.PhotoImage(matched_img.resize((200, 200)))
+            self.matched_image.config(image=matched_display)
+            self.matched_image.image = matched_display
+            
+            # Show disease information
+            disease_info = self.get_disease_info(pred_class_name)
+            self.info_text.config(state=tk.NORMAL)
+            self.info_text.delete(1.0, tk.END)
+            self.info_text.insert(tk.END, disease_info)
+            self.info_text.config(state=tk.DISABLED)
+            
+            self.status.config(text="Prediction complete")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process image: {str(e)}")
+            self.status.config(text="Error occurred")
+    
+    def get_disease_info(self, disease_name):
+        """Return formatted information about the disease"""
+        info = {
+            "akiec": """Actinic Keratoses (AK)
+Also called solar keratoses, these are rough, scaly patches on sun-exposed areas.
+Causes: Long-term sun exposure
+Treatment: Freezing (cryotherapy), medicated creams, photodynamic therapy""",
+            
+            "bcc": """Basal Cell Carcinoma (BCC)
+Most common type of skin cancer that rarely spreads.
+Causes: UV radiation from sun/tanning beds
+Treatment: Surgical excision, Mohs surgery, cryotherapy""",
+            
+            "bkl": """Benign Keratosis
+Non-cancerous skin growths that resemble warts.
+Causes: Unknown, possibly sun exposure
+Treatment: Usually none needed, can be removed if bothersome""",
+            
+            "df": """Dermatofibroma
+Harmless hard bump often found on legs.
+Causes: Unknown, possibly minor skin injury
+Treatment: None needed unless for cosmetic reasons""",
+            
+            "mel": """Melanoma
+Most serious skin cancer that can spread quickly.
+Causes: UV exposure, genetic factors
+Treatment: Surgical removal, immunotherapy, targeted therapy""",
+            
+            "nv": """Melanocytic Nevi (Moles)
+Common benign skin growths.
+Causes: Clusters of pigment cells
+Treatment: Monitoring, removal if suspicious""",
+            
+            "vasc": """Vascular Lesions
+Skin conditions involving blood vessels.
+Causes: Various, including genetic factors
+Treatment: Laser therapy or surgical removal if needed"""
+        }
+        
+        return info.get(disease_name, "Information not available for this condition")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SkinDiseaseClassifier(root)
+    root.mainloop()
