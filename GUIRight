@@ -1,0 +1,115 @@
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageTk
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import os
+
+# Load the trained model (update path if needed)
+MODEL_PATH = "hmnist_model_rgb.h5"
+model = tf.keras.models.load_model(MODEL_PATH)
+
+# Load dataset (for matched sample image)
+DATASET_CSV_PATH = r"C:\Users\ajabrao chilhate\Downloads\archive (2)\hmnist_28_28_RGB.csv"
+df = pd.read_csv(DATASET_CSV_PATH)
+
+# Class mapping and info
+disease_map = {
+    0: ("Actinic keratoses", "Rough, scaly patch on skin from sun exposure."),
+    1: ("Basal cell carcinoma", "Type of skin cancer that begins in basal cells."),
+    2: ("Benign keratosis-like lesions", "Non-cancerous skin growths."),
+    3: ("Dermatofibroma", "Firm, small, benign skin nodule."),
+    4: ("Melanocytic nevi", "Common mole, usually benign."),
+    5: ("Vascular lesions", "Abnormal blood vessels on skin."),
+    6: ("Melanoma", "Serious form of skin cancer.")
+}
+
+# GUI setup
+root = tk.Tk()
+root.title("Skin Disease Classifier")
+root.geometry("950x650")
+root.configure(bg="#f0f3f5")
+
+title = tk.Label(root, text="Skin Disease Classifier", font=("Helvetica", 24, "bold"), bg="#4285F4", fg="white", pady=10)
+title.pack(fill=tk.X)
+
+# Upload button
+upload_btn = tk.Button(root, text="Upload Skin Image", font=("Helvetica", 14), bg="green", fg="white", padx=20, pady=5)
+upload_btn.pack(pady=20)
+
+result_label = tk.Label(root, text="", font=("Helvetica", 14), fg="green", bg="#f0f3f5")
+result_label.pack()
+
+# Image preview layout
+image_frame = tk.Frame(root, bg="#f0f3f5")
+image_frame.pack(pady=20)
+
+user_image_label = tk.Label(image_frame, text="Your Image:", font=("Helvetica", 12), bg="#f0f3f5")
+user_image_label.grid(row=0, column=0)
+sample_image_label = tk.Label(image_frame, text="Matched Sample:", font=("Helvetica", 12), bg="#f0f3f5")
+sample_image_label.grid(row=0, column=1)
+
+user_img_canvas = tk.Label(image_frame)
+user_img_canvas.grid(row=1, column=0, padx=30)
+sample_img_canvas = tk.Label(image_frame)
+sample_img_canvas.grid(row=1, column=1, padx=30)
+
+# Disease info box
+disease_info_label = tk.Label(root, text="Disease Information:", font=("Helvetica", 14, "bold"), anchor="w", bg="#f0f3f5")
+disease_info_label.pack(fill=tk.X, padx=10)
+
+disease_info_text = tk.Text(root, height=5, font=("Helvetica", 12), wrap=tk.WORD)
+disease_info_text.pack(padx=10, pady=10, fill=tk.BOTH)
+disease_info_text.config(state='disabled')
+
+# Resize & preprocess image
+def preprocess_image(img_path):
+    from tensorflow.keras.preprocessing import image
+    img = image.load_img(img_path, target_size=(28, 28))
+    img_arr = image.img_to_array(img) / 255.0
+    return np.expand_dims(img_arr, axis=0), img
+
+# Fetch a sample image from the dataset
+def get_sample_image(predicted_class):
+    sample = df[df['label'] == predicted_class].sample(1)
+    img_array = sample.drop('label', axis=1).values.reshape(28, 28, 3).astype(np.uint8)
+    img = Image.fromarray(img_array, 'RGB').resize((150, 150))
+    return ImageTk.PhotoImage(img)
+
+# On Upload
+def upload_image():
+    file_path = filedialog.askopenfilename()
+    if not file_path:
+        return
+
+    # User image
+    input_img_arr, pil_img = preprocess_image(file_path)
+    user_img_resized = pil_img.resize((150, 150))
+    user_img_tk = ImageTk.PhotoImage(user_img_resized)
+    user_img_canvas.configure(image=user_img_tk)
+    user_img_canvas.image = user_img_tk
+
+    # Predict
+    preds = model.predict(input_img_arr)[0]
+    pred_class = np.argmax(preds)
+    confidence = preds[pred_class] * 100
+
+    # Disease info
+    disease_name, disease_desc = disease_map.get(pred_class, ("Unknown", "Information not available."))
+
+    result_label.config(text=f"Predicted: {disease_name} (Confidence: {confidence:.1f}%)")
+
+    disease_info_text.config(state='normal')
+    disease_info_text.delete("1.0", tk.END)
+    disease_info_text.insert(tk.END, disease_desc)
+    disease_info_text.config(state='disabled')
+
+    # Matched sample image
+    sample_img_tk = get_sample_image(pred_class)
+    sample_img_canvas.configure(image=sample_img_tk)
+    sample_img_canvas.image = sample_img_tk
+
+upload_btn.config(command=upload_image)
+
+root.mainloop()
